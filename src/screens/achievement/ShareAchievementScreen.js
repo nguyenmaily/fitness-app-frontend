@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { shareAchievement } from '../../store/reducers/achievementSlice';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 import ViewShot from 'react-native-view-shot';
 import moment from 'moment';
 import 'moment/locale/vi';
@@ -19,8 +18,28 @@ const ShareAchievementScreen = ({ route, navigation }) => {
   const { sharingStatus } = useSelector((state) => state.achievements);
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
   
+
   const viewShotRef = React.useRef();
   
+  // Log screen view
+  useEffect(() => {
+    analyticsService.logScreenView('ShareAchievement', 'ShareAchievementScreen');
+  }, []);
+  
+  // Log khi chọn nền tảng chia sẻ
+  const togglePlatform = (platform) => {
+    analyticsService.logEvent('select_share_platform', {
+      platform: platform,
+      achievement_id: achievement.id
+    });
+    
+    if (selectedPlatforms.includes(platform)) {
+      setSelectedPlatforms(selectedPlatforms.filter(p => p !== platform));
+    } else {
+      setSelectedPlatforms([...selectedPlatforms, platform]);
+    }
+  };
+
   // Thay đổi: Thay logo.png bằng Logo X component
   const LogoX = () => (
     <View style={styles.logoContainer}>
@@ -28,14 +47,6 @@ const ShareAchievementScreen = ({ route, navigation }) => {
       <Text style={styles.appName}>Fitness X</Text>
     </View>
   );
-
-  const togglePlatform = (platform) => {
-    if (selectedPlatforms.includes(platform)) {
-      setSelectedPlatforms(selectedPlatforms.filter(p => p !== platform));
-    } else {
-      setSelectedPlatforms([...selectedPlatforms, platform]);
-    }
-  };
   
   const handleShare = async () => {
     try {
@@ -44,6 +55,12 @@ const ShareAchievementScreen = ({ route, navigation }) => {
         return;
       }
       
+      // Ghi nhận bắt đầu quá trình chia sẻ
+      analyticsService.logEvent('start_sharing_process', {
+        achievement_id: achievement.id,
+        platforms: selectedPlatforms.join(',')
+      });
+
       // Chụp ảnh card thành tích
       const uri = await viewShotRef.current.capture();
       
@@ -57,6 +74,9 @@ const ShareAchievementScreen = ({ route, navigation }) => {
           share_platforms: selectedPlatforms,
           media_urls: [uri]
         }));
+
+        // Log sự kiện chia sẻ thành công
+        analyticsService.logShare('achievement', achievement.id, selectedPlatforms.join(','));
         
         Alert.alert(
           'Thành công', 
@@ -66,9 +86,11 @@ const ShareAchievementScreen = ({ route, navigation }) => {
           ]
         );
       } else {
+        analyticsService.logError('sharing_unavailable', 'Device does not support sharing');
         Alert.alert('Lỗi', 'Thiết bị của bạn không hỗ trợ chia sẻ');
       }
     } catch (error) {
+      analyticsService.logError('share_achievement_error', error.message);
       Alert.alert('Lỗi', 'Không thể chia sẻ thành tích: ' + error.message);
     }
   };
@@ -77,7 +99,7 @@ const ShareAchievementScreen = ({ route, navigation }) => {
     <ScrollView style={styles.container}>
       <ViewShot ref={viewShotRef} style={styles.cardContainer}>
       <LinearGradient
-          colors={['#92A3FD', '#9DCEFF']}
+          colors={[COLORS.primary, COLORS.secondary]}
           style={styles.achievementCard}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}

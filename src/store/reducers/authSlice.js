@@ -1,88 +1,56 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import supabase from '../../services/supabase';
+import { supabase } from '../../services/supabase';
+import * as SecureStore from 'expo-secure-store';
 
-// Async thunk để đăng nhập
+// Selectors
+// export const selectCurrentUserId = (state) => state.auth.user?.id || null;
+// export const selectIsAuthenticated = (state) => !!state.auth.user;
+
+// Async Thunks
 export const login = createAsyncThunk(
   'auth/login',
   async ({ email, password }, { rejectWithValue }) => {
     try {
+      // Bước 1.1: Gọi API đăng nhập
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: email.toLowerCase().trim(),
+        password: password.trim()
       });
-      
-      if (error) throw error;
-      
-      return data;
-    } catch (error) {
-      return rejectWithValue(error.message);
-    }
-  }
-);
 
-// Async thunk để đăng ký
-export const signup = createAsyncThunk(
-  'auth/signup',
-  async ({ email, password, username }, { rejectWithValue }) => {
-    try {
-      // Đăng ký người dùng mới
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-      
-      if (authError) throw authError;
-      
-      // Cập nhật thông tin profile nếu cần
-      if (username && authData.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert([
-            {
-              id: authData.user.id,
-              username,
-              avatar_url: null,
-              updated_at: new Date(),
-            },
-          ]);
-        
-        if (profileError) throw profileError;
+      // Bước 1.2: Nếu có lỗi từ Supabase
+      if (error) {
+        console.error('Lỗi từ Supabase:', error); // 🚨 Log lỗi
+        throw error;
       }
+
+      // Bước 1.3: Lưu token vào SecureStore
+      await SecureStore.setItemAsync('supabase_token', data.session.access_token);
       
-      return authData;
+      // Bước 1.4: Trả về dữ liệu đúng cấu trúc
+      return {
+        user: data.user,
+        session: data.session
+      };
+
     } catch (error) {
+      // Bước 1.5: Xử lý lỗi
+      console.error('Lỗi trong quá trình đăng nhập:', error);
       return rejectWithValue(error.message);
     }
   }
 );
 
-// Async thunk để đăng xuất
-export const logout = createAsyncThunk(
-  'auth/logout',
-  async (_, { rejectWithValue }) => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      return null;
-    } catch (error) {
-      return rejectWithValue(error.message);
-    }
-  }
-);
 
-// Async thunk để kiểm tra phiên đăng nhập hiện tại
 export const checkSession = createAsyncThunk(
   'auth/checkSession',
-  async (_, { rejectWithValue }) => {
+  async (_, { rejectWithValue, dispatch }) => {
     try {
       const { data, error } = await supabase.auth.getSession();
-      
       if (error) throw error;
-      
-      if (data && data.session) {
+      if (data?.session) {
+        dispatch(getUserProfile(data.session.user.id));
         return data;
       }
-      
       return null;
     } catch (error) {
       return rejectWithValue(error.message);
@@ -90,7 +58,6 @@ export const checkSession = createAsyncThunk(
   }
 );
 
-// Async thunk để lấy profile người dùng
 export const getUserProfile = createAsyncThunk(
   'auth/getUserProfile',
   async (userId, { rejectWithValue }) => {
@@ -100,9 +67,7 @@ export const getUserProfile = createAsyncThunk(
         .select('*')
         .eq('id', userId)
         .single();
-      
       if (error) throw error;
-      
       return data;
     } catch (error) {
       return rejectWithValue(error.message);
@@ -110,11 +75,26 @@ export const getUserProfile = createAsyncThunk(
   }
 );
 
+export const logout = createAsyncThunk(
+  'auth/logout',
+  async (_, { rejectWithValue }) => {
+    try {
+      await SecureStore.deleteItemAsync('supabase_token');
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      return null;
+    } catch (error) {
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
+// Slice
 const initialState = {
   user: null,
   session: null,
   profile: null,
-  status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
+  status: 'idle',
   error: null,
 };
 
@@ -123,84 +103,51 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     resetAuthState: (state) => {
+      state.user = null;
+      state.session = null;
+      state.profile = null;
       state.status = 'idle';
       state.error = null;
     },
   },
   extraReducers: (builder) => {
     builder
-      // Xử lý login
       .addCase(login.pending, (state) => {
         state.status = 'loading';
         state.error = null;
       })
       .addCase(login.fulfilled, (state, action) => {
-        state.status = 'succeeded';
         state.user = action.payload.user;
         state.session = action.payload.session;
+        state.status = 'succeeded';
+        state.error = null;
       })
       .addCase(login.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.payload;
       })
-      
-      // Xử lý signup
-      .addCase(signup.pending, (state) => {
-        state.status = 'loading';
-        state.error = null;
-      })
-      .addCase(signup.fulfilled, (state, action) => {
-        state.status = 'succeeded';
-        state.user = action.payload.user;
-        state.session = action.payload.session;
-      })
-      .addCase(signup.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = action.payload;
-      })
-      
-      // Xử lý logout
-      .addCase(logout.pending, (state) => {
-        state.status = 'loading';
-      })
-      .addCase(logout.fulfilled, (state) => {
-        state.status = 'idle';
-        state.user = null;
-        state.session = null;
-        state.profile = null;
-      })
-      .addCase(logout.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = action.payload;
-      })
-      
-      // Xử lý checkSession
       .addCase(checkSession.pending, (state) => {
         state.status = 'loading';
       })
       .addCase(checkSession.fulfilled, (state, action) => {
         state.status = 'succeeded';
-        if (action.payload) {
-          state.user = action.payload.session?.user || null;
-          state.session = action.payload.session;
-        }
+        state.user = action.payload?.session?.user || null;
+        state.session = action.payload?.session || null;
       })
       .addCase(checkSession.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.payload;
-      })
-      
-      // Xử lý getUserProfile
-      .addCase(getUserProfile.pending, (state) => {
-        state.status = 'loading';
+        state.user = null;
+        state.session = null;
       })
       .addCase(getUserProfile.fulfilled, (state, action) => {
-        state.status = 'succeeded';
         state.profile = action.payload;
       })
-      .addCase(getUserProfile.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = action.payload;
+      .addCase(logout.fulfilled, (state) => {
+        state.user = null;
+        state.session = null;
+        state.profile = null;
+        state.status = 'idle';
       });
   },
 });

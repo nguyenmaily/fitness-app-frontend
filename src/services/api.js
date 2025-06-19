@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-const BASE_URL = 'http://localhost:5000/api';
+const BASE_URL = 'http://192.168.199.126:5000/api'; 
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -13,7 +13,7 @@ const api = axios.create({
 // Interceptor để tự động thêm token authentication vào header
 api.interceptors.request.use(
   async (config) => {
-    const token = await SecureStore.getItemAsync('token');
+    const token = await SecureStore.getItemAsync('supabase_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -23,6 +23,36 @@ api.interceptors.request.use(
     return Promise.reject(error);
   }
 );
+
+// Interceptor xử lý response
+api.interceptors.response.use(
+  (response) => {
+    console.log(`API Response Success: ${response.config.url}`, 
+                `Status: ${response.status}`);
+    return response;
+  },
+  (error) => {
+    if (error.response) {
+      // Server trả về response với status code ngoài phạm vi 2xx
+      console.error('API Error Response:', {
+        url: error.config.url,
+        status: error.response.status,
+        data: error.response.data
+      });
+    } else if (error.request) {
+      // Không nhận được response từ server
+      console.error('API No Response:', {
+        url: error.config.url,
+        message: 'Server không phản hồi. Kiểm tra kết nối mạng và server.'
+      });
+    } else {
+      // Có lỗi khi thiết lập request
+      console.error('API Setup Error:', error.message);
+    }
+    return Promise.reject(error);
+  }
+);
+
 
 // API functions cho Lịch sử thành tích
 export const achievementAPI = {

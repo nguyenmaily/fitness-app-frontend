@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchChallengeLeaderboard } from '../../store/reducers/challengeSlice';
 import { Ionicons } from '@expo/vector-icons';

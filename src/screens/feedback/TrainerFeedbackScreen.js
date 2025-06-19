@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity,ActivityIndicator } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchUserFeedback, markFeedbackAsRead } from '../../store/reducers/feedbackSlice';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import COLORS from '../../constants/colors';
+import analyticsService from '../../services/analyticsService';
+import performanceMonitor from '../../services/performanceMonitor';
 import moment from 'moment';
 import 'moment/locale/vi';
 
@@ -18,8 +20,16 @@ const TrainerFeedbackScreen = ({ navigation }) => {
   // Giả định user_id từ Auth state
   const userId = 'current_user_id';
   
+   // Log screen view
   useEffect(() => {
-    loadFeedback();
+    analyticsService.logScreenView('TrainerFeedback', 'TrainerFeedbackScreen');
+  }, []);
+  
+  useEffect(() => {
+    const startTime = Date.now();
+    loadFeedback().then(() => {
+      performanceMonitor.trackDataFetch('feedback', startTime);
+    });
   }, []);
   
   const loadFeedback = async () => {
@@ -28,11 +38,25 @@ const TrainerFeedbackScreen = ({ navigation }) => {
   
   const handleRefresh = async () => {
     setRefreshing(true);
+    analyticsService.logEvent('pull_to_refresh', {
+      screen: 'TrainerFeedback'
+    });
+    
+    const startTime = Date.now();
     await loadFeedback();
+    performanceMonitor.trackDataFetch('feedback_refresh', startTime);
+
     setRefreshing(false);
   };
 
+  // Log khi người dùng đọc phản hồi
   const handleMarkAsRead = (feedbackId) => {
+     analyticsService.logEvent('read_feedback', {
+      feedback_id: feedbackId,
+      trainer_id: trainerId,
+      is_new: !isRead
+    });
+    
     dispatch(markFeedbackAsRead(feedbackId));
   };
   
@@ -53,6 +77,12 @@ const TrainerFeedbackScreen = ({ navigation }) => {
         <Ionicons name="fitness" size={size*0.6} color={COLORS.white} />
       </View>
     );
+  };
+
+  // Log khi người dùng muốn gửi media
+  const handleGoToSendMedia = () => {
+    analyticsService.logEvent('start_send_media');
+    navigation.navigate('SendMedia');
   };
 
   const renderFeedbackItem = ({ item }) => {
@@ -126,6 +156,15 @@ const TrainerFeedbackScreen = ({ navigation }) => {
           contentContainerStyle={styles.listContainer}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          onEndReached={() => {
+            if (feedback.length > 0) {
+              analyticsService.logEvent('list_end_reached', {
+                screen: 'TrainerFeedback',
+                items_count: feedback.length
+              });
+            }
+          }}
+          onEndReachedThreshold={0.5}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="chatbubbles-outline" size={64} color={COLORS.lightGray} />

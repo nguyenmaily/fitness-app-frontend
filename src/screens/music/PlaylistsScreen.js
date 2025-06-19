@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, Image, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchPlaylists, fetchPlaylistsByWorkoutType, setCurrentPlaylist } from '../../store/reducers/musicSlice';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import COLORS from '../../constants/colors';
+import analyticsService from '../../services/analyticsService';
 
 const PlaylistsScreen = ({ navigation }) => {
   const dispatch = useDispatch();
@@ -13,8 +14,16 @@ const PlaylistsScreen = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   
+  // Log screen view
   useEffect(() => {
-    loadPlaylists();
+    analyticsService.logScreenView('Playlists', 'PlaylistsScreen');
+  }, []);
+  
+  useEffect(() => {
+    const startTime = Date.now();
+    loadPlaylists().then(() => {
+      performanceMonitor.trackDataFetch('playlists', startTime);
+    });
   }, []);
   
   const loadPlaylists = async () => {
@@ -23,23 +32,58 @@ const PlaylistsScreen = ({ navigation }) => {
   
   const handleRefresh = async () => {
     setRefreshing(true);
+    analyticsService.logEvent('pull_to_refresh', {
+      screen: 'Playlists'
+    });
+    
+    const startTime = Date.now();
     await loadPlaylists();
+    performanceMonitor.trackDataFetch('playlists_refresh', startTime);
+    
     setRefreshing(false);
   };
   
+  // Log khi người dùng chọn danh mục
   const handleCategorySelect = async (category) => {
+    analyticsService.logEvent('select_music_category', {
+      category: category
+    });
+    
     setSelectedCategory(category);
     
+    const startTime = Date.now();
     if (category === 'all') {
       await dispatch(fetchPlaylists());
     } else {
       await dispatch(fetchPlaylistsByWorkoutType(category));
     }
+    performanceMonitor.trackDataFetch(`playlists_by_category_${category}`, startTime);
   };
   
+  // Log khi người dùng chọn playlist
   const handlePlaylistSelect = (playlist) => {
+    analyticsService.logEvent('select_playlist', {
+      playlist_id: playlist.id,
+      playlist_name: playlist.name,
+      track_count: playlist.tracks?.length || 0,
+      workout_type: playlist.workout_type?.join(',') || 'unknown'
+    });
+    
     dispatch(setCurrentPlaylist(playlist));
     navigation.navigate('MusicPlayer', { playlist });
+  };
+  
+  // Log khi người dùng tìm kiếm
+  const handleSearch = (query) => {
+    if (query !== searchQuery) {
+      setSearchQuery(query);
+      
+      if (query.length > 2) {
+        analyticsService.logEvent('search_music', {
+          query: query
+        });
+      }
+    }
   };
   
   const getFilteredPlaylists = () => {
@@ -50,7 +94,7 @@ const PlaylistsScreen = ({ navigation }) => {
     );
   };
 
-    // Thay thế ảnh album bằng component
+  // Thay thế ảnh album bằng component
   const PlaylistCover = ({ playlist, size = 80 }) => {
     // Màu gradient dựa trên loại workout
     const getWorkoutTypeColors = (types) => {
@@ -77,7 +121,7 @@ const PlaylistsScreen = ({ navigation }) => {
       
       return 'musical-notes';
     };
-
+    
     return (
       <LinearGradient
         colors={getWorkoutTypeColors(playlist.workout_type)}
@@ -93,15 +137,15 @@ const PlaylistsScreen = ({ navigation }) => {
       </LinearGradient>
     );
   };
-
+  
   const renderPlaylistItem = ({ item }) => {
     const tracksCount = item.tracks ? item.tracks.length : 0;
     const durationMins = item.duration ? Math.floor(item.duration / 60) : 0;
-
+    
     return (
       <TouchableOpacity 
         style={styles.playlistCard}
-        onPress = {() => handlePlaylistSelect(item)}
+        onPress={() => handlePlaylistSelect(item)}
       >
         <PlaylistCover playlist={item} />
         
@@ -247,6 +291,15 @@ const PlaylistsScreen = ({ navigation }) => {
           contentContainerStyle={styles.listContainer}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          onEndReached={() => {
+            if (getFilteredPlaylists().length > 0) {
+              analyticsService.logEvent('list_end_reached', {
+                screen: 'Playlists',
+                items_count: getFilteredPlaylists().length
+              });
+            }
+          }}
+          onEndReachedThreshold={0.5}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="musical-notes-outline" size={64} color={COLORS.lightGray} />

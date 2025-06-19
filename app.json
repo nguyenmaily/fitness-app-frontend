@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "jsEngine": "hermes",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -27,36 +28,44 @@
       }
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
+      "googleServicesFile": "./android/app/google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "edgeToEdgeEnabled": true,
-      "package_name": "com.company.fitnessapp"
+      "package": "com.company.fitnessapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "@react-native-firebase/app",
       [
         "expo-image-picker",
         {
           "photosPermission": "Cho phép ứng dụng truy cập vào ảnh của bạn để tải lên hình ảnh tập luyện và chia sẻ thành tích."
         }
       ],
+      "expo-secure-store",
       [
         "expo-av",
         {
-          "microphonePermission": "Cho phép ứng dụng truy cập vào microphone để ghi âm phản hồi."
+          "microphonePermission": "Cho phép ứng dụng truy cập vào micro để ghi âm và gửi tin nhắn thoại."
         }
-      ],
-      "expo-secure-store"
+      ]
     ],
-    "scheme": "fitnessapp" 
+    "scheme": "fitnessapp",
+    "extra": {
+      "eas": {
+        "projectId": "a2159945-b60a-4a47-aa72-8f902b110574"
+      }
+    }
   }
 }

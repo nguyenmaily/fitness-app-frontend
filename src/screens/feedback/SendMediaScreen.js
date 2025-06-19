@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { sendMediaForFeedback } from '../../store/reducers/feedbackSlice';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import COLORS from '../../constants/colors';
 import { LinearGradient } from 'expo-linear-gradient';
-
+import COLORS from '../../constants/colors';
+import analyticsService from '../../services/analyticsService';
 
 const SendMediaScreen = ({ navigation }) => {
   const dispatch = useDispatch();
@@ -19,16 +19,31 @@ const SendMediaScreen = ({ navigation }) => {
   // Giả định trainer_id được chỉ định cho người dùng
   const trainerId = 'assigned_trainer_id';
   
+  // Log screen view
+  useEffect(() => {
+    analyticsService.logScreenView('SendMedia', 'SendMediaScreen');
+  }, []);
+  
+  // Xin quyền truy cập vào thư viện ảnh
   useEffect(() => {
     (async () => {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Cần quyền truy cập', 'Chúng tôi cần quyền truy cập vào thư viện ảnh của bạn để chọn ảnh/video.');
+        analyticsService.logEvent('permission_denied', {
+          permission_type: 'media_library',
+          screen: 'SendMedia'
+        });
       }
     })();
   }, []);
   
+  // Log khi người dùng chọn media từ thư viện
   const pickImage = async () => {
+    analyticsService.logEvent('select_media_source', {
+      source: 'gallery'
+    });
+    
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
@@ -38,17 +53,33 @@ const SendMediaScreen = ({ navigation }) => {
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setMedia([...media, result.assets[0]]);
+        
+        // Log loại media đã chọn
+        analyticsService.logEvent('media_selected', {
+          media_type: result.assets[0].type || 'unknown',
+          from_source: 'gallery'
+        });
       }
     } catch (error) {
+      analyticsService.logError('pick_image_error', error.message);
       Alert.alert('Lỗi', 'Không thể chọn ảnh/video: ' + error.message);
     }
   };
   
+  // Log khi người dùng chụp ảnh/quay video
   const takePhoto = async () => {
+    analyticsService.logEvent('select_media_source', {
+      source: 'camera'
+    });
+    
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Cần quyền truy cập', 'Chúng tôi cần quyền truy cập vào camera của bạn.');
+        analyticsService.logEvent('permission_denied', {
+          permission_type: 'camera',
+          screen: 'SendMedia'
+        });
         return;
       }
       
@@ -60,23 +91,42 @@ const SendMediaScreen = ({ navigation }) => {
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setMedia([...media, result.assets[0]]);
+        
+        // Log loại media đã chụp/quay
+        analyticsService.logEvent('media_captured', {
+          media_type: result.assets[0].type || 'unknown',
+          from_source: 'camera'
+        });
       }
     } catch (error) {
+      analyticsService.logError('take_photo_error', error.message);
       Alert.alert('Lỗi', 'Không thể chụp ảnh/quay video: ' + error.message);
     }
   };
   
+  // Log khi người dùng xóa media
   const removeMedia = (index) => {
+    analyticsService.logEvent('remove_media', {
+      index: index,
+      total_media_count: media.length
+    });
+    
     const updatedMedia = [...media];
     updatedMedia.splice(index, 1);
     setMedia(updatedMedia);
   };
   
+  // Log khi người dùng gửi media
   const handleSendMedia = async () => {
     if (media.length === 0) {
       Alert.alert('Thông báo', 'Vui lòng chọn ít nhất một ảnh hoặc video');
       return;
     }
+    
+    analyticsService.logEvent('start_send_media_process', {
+      media_count: media.length,
+      has_note: note.length > 0
+    });
     
     try {
       // Chuẩn bị dữ liệu gửi lên
@@ -96,6 +146,9 @@ const SendMediaScreen = ({ navigation }) => {
       
       await dispatch(sendMediaForFeedback(formData));
       
+      // Log thành công
+      analyticsService.logSendFeedback('media', true);
+      
       Alert.alert(
         'Thành công', 
         'Đã gửi ảnh/video của bạn tới huấn luyện viên',
@@ -104,10 +157,11 @@ const SendMediaScreen = ({ navigation }) => {
         ]
       );
     } catch (error) {
+      analyticsService.logError('send_media_error', error.message);
       Alert.alert('Lỗi', 'Không thể gửi ảnh/video: ' + error.message);
     }
   };
-
+  
   // Thay thế ảnh preview bằng component
   const MediaPreview = ({ item, index }) => {
     const isVideo = item.uri.endsWith('.mp4');
@@ -131,7 +185,7 @@ const SendMediaScreen = ({ navigation }) => {
           style={styles.removeMediaButton}
           onPress={() => removeMedia(index)}
         >
-          <Ionicons name="close-circle" size={24} color="#ff3b30" />
+          <Ionicons name="close-circle" size={24} color={COLORS.error} />
         </TouchableOpacity>
         
         {isVideo && (

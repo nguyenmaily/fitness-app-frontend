@@ -1,9 +1,12 @@
 import React from 'react';
+import { ScrollView } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import COLORS from '../constants/colors';
+import analyticsService from '../services/analyticsService';
+import { useSelector } from 'react-redux';
 
 // Import màn hình
 import AchievementHistoryScreen from '../screens/achievement/AchievementHistoryScreen';
@@ -18,7 +21,7 @@ import PlaylistsScreen from '../screens/music/PlaylistsScreen';
 import PlaceholderLoginScreen from '../screens/auth/PlaceholderLoginScreen'; 
 
 // Stack Navigators
-const AchievementStack = createStackNavigator();
+const AchievementStack = createNativeStackNavigator();
 const AchievementNavigator = () => (
   <AchievementStack.Navigator
     screenOptions={{
@@ -34,12 +37,12 @@ const AchievementNavigator = () => (
       },
     }}
   >
-    <AchievementStack.Screen name="AchievementHistory" component={AchievementHistoryScreen} options={{ title: 'Lịch sử thành tích' }} />
-    <AchievementStack.Screen name="ShareAchievement" component={ShareAchievementScreen} options={{ title: 'Chia sẻ thành tích' }} />
+    <AchievementStack.Screen name="AchievementHistory" component={AchievementHistoryScreen} options={{ title: 'Lịch sử thành tích', headerShown: true }} />
+    <AchievementStack.Screen name="ShareAchievement" component={ShareAchievementScreen} options={{ title: 'Chia sẻ thành tích' , headerShown: true }} />
   </AchievementStack.Navigator>
 );
 
-const ChallengeStack = createStackNavigator();
+const ChallengeStack = createNativeStackNavigator();
 const ChallengeNavigator = () => (
   <ChallengeStack.Navigator
     screenOptions={{
@@ -55,13 +58,13 @@ const ChallengeNavigator = () => (
       },
     }}
   >
-    <ChallengeStack.Screen name="Challenges" component={ChallengesScreen} options={{ title: 'Thử thách' }} />
-    <ChallengeStack.Screen name="Leaderboard" component={LeaderboardScreen} options={{ title: 'Bảng xếp hạng' }} />
-    <ChallengeStack.Screen name="Badges" component={BadgesScreen} options={{ title: 'Huy hiệu' }} />
+    <ChallengeStack.Screen name="Challenges" component={ChallengesScreen} options={{ title: 'Thử thách' , headerShown: true }} />
+    <ChallengeStack.Screen name="Leaderboard" component={LeaderboardScreen} options={{ title: 'Bảng xếp hạng' , headerShown: true}} />
+    <ChallengeStack.Screen name="Badges" component={BadgesScreen} options={{ title: 'Huy hiệu' , headerShown: true}} />
   </ChallengeStack.Navigator>
 );
 
-const FeedbackStack = createStackNavigator();
+const FeedbackStack = createNativeStackNavigator();
 const FeedbackNavigator = () => (
   <FeedbackStack.Navigator
     screenOptions={{
@@ -77,12 +80,12 @@ const FeedbackNavigator = () => (
       },
     }}
   >
-    <FeedbackStack.Screen name="TrainerFeedback" component={TrainerFeedbackScreen} options={{ title: 'Phản hồi từ HLV' }} />
-    <FeedbackStack.Screen name="SendMedia" component={SendMediaScreen} options={{ title: 'Gửi media' }} />
+    <FeedbackStack.Screen name="TrainerFeedback" component={TrainerFeedbackScreen} options={{ title: 'Phản hồi từ HLV' , headerShown: true}} />
+    <FeedbackStack.Screen name="SendMedia" component={SendMediaScreen} options={{ title: 'Gửi media' , headerShown: true }} />
   </FeedbackStack.Navigator>
 );
 
-const MusicStack = createStackNavigator();
+const MusicStack = createNativeStackNavigator();
 const MusicNavigator = () => (
   <MusicStack.Navigator
     screenOptions={{
@@ -98,16 +101,16 @@ const MusicNavigator = () => (
       },
     }}
   >
-    <MusicStack.Screen name="Playlists" component={PlaylistsScreen} options={{ title: 'Danh sách nhạc' }} />
+    <MusicStack.Screen name="Playlists" component={PlaylistsScreen} options={{ title: 'Danh sách nhạc' , headerShown: true }} />
     <MusicStack.Screen 
       name="MusicPlayer" 
       component={MusicPlayerScreen} 
-      options={{ title: 'Trình phát nhạc' }}
+      options={{ title: 'Trình phát nhạc' , headerShown: true }}
     />
   </MusicStack.Navigator>
 );
 // Auth Navigator
-const AuthStack = createStackNavigator();
+const AuthStack = createNativeStackNavigator();
 const AuthNavigator = () => (
   <AuthStack.Navigator
     screenOptions={{
@@ -115,21 +118,48 @@ const AuthNavigator = () => (
     }}
   >
     <AuthStack.Screen name="Login" component={PlaceholderLoginScreen} />
+    {/* Thêm màn hình đăng ký nếu cần */}
+    {/* <AuthStack.Screen name="Signup" component={SignupScreen} /> */}
   </AuthStack.Navigator>
 );
 
-// Main Navigator (chứa Auth và Main tab)
-const MainStack = createStackNavigator();
-const RootNavigator = () => (
-  <MainStack.Navigator
-    screenOptions={{
-      headerShown: false,
-    }}
-  >
-    <MainStack.Screen name="Auth" component={AuthNavigator} />
-    <MainStack.Screen name="MainTab" component={MainNavigator} />
-  </MainStack.Navigator>
-);
+// Main Navigator - Điều hướng dựa trên trạng thái đăng nhập
+const MainStack = createNativeStackNavigator();
+const RootNavigator = () => {
+  const authState = useSelector(state => {
+    // Debug để xem state có tồn tại không
+    console.log('Full state in RootNavigator:', state);
+    
+    // Kiểm tra an toàn hơn
+    if (!state) {
+      console.warn('Redux state is null/undefined');
+      return { user: null, status: 'idle', error: null };
+    }
+    
+    if (!state.auth) {
+      console.warn('Auth state not found in Redux store');
+      return { user: null, status: 'idle', error: null };
+    }
+    
+    return state.auth;
+  });
+  
+  console.log('Redux auth state:', authState);
+
+  // Các logic điều hướng dựa trên state
+  const { user } = authState;
+
+  return (
+    <MainStack.Navigator screenOptions={{ headerShown: false }}>
+      {user ? (
+        <MainStack.Screen name="MainTab" component={MainNavigator} />
+      ) : (
+        <MainStack.Screen name="Auth" component={AuthNavigator} />
+      )}
+    </MainStack.Navigator>
+  );
+};
+
 
 // Tab Navigator
 const Tab = createBottomTabNavigator();
@@ -168,6 +198,14 @@ const MainNavigator = () => {
         },
         headerShown: false,
       })}
+      screenListeners={({ route }) => ({
+        tabPress: e => {
+          // Log khi người dùng nhấn vào tab
+          analyticsService.logEvent('tab_pressed', {
+            tab_name: route.name
+          });
+        },
+      })}
     >
       <Tab.Screen 
         name="Achievements" 
@@ -193,4 +231,4 @@ const MainNavigator = () => {
   );
 };
 
-export default MainNavigator;
+export default RootNavigator;

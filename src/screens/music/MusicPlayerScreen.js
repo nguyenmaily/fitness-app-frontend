@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView, Dimensions } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { setCurrentTrack, setPlaying } from '../../store/reducers/musicSlice';
 import { Audio } from 'expo-av';
@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import COLORS from '../../constants/colors';
+import analyticsService from '../../services/analyticsService';
 
 const { width } = Dimensions.get('window');
 
@@ -20,6 +21,33 @@ const MusicPlayerScreen = ({ route }) => {
   const [duration, setDuration] = useState(0);
   const [position, setPosition] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [sessionStartTime, setSessionStartTime] = useState(Date.now());
+  
+  // Log screen view và bắt đầu phiên nghe nhạc
+  useEffect(() => {
+    analyticsService.logScreenView('MusicPlayer', 'MusicPlayerScreen');
+    analyticsService.logEvent('start_music_session', {
+      playlist_id: playlist.id,
+      playlist_name: playlist.name,
+      workout_type: playlist.workout_type?.join(',') || 'unknown'
+    });
+    
+    setSessionStartTime(Date.now());
+    
+    // Cleanup khi người dùng rời khỏi màn hình
+    return () => {
+      const sessionDuration = Math.floor((Date.now() - sessionStartTime) / 1000);
+      analyticsService.logEvent('end_music_session', {
+        playlist_id: playlist.id,
+        playlist_name: playlist.name,
+        duration_seconds: sessionDuration
+      });
+      
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, []);
   
   // Chọn track đầu tiên khi vào màn hình
   useEffect(() => {
@@ -33,13 +61,6 @@ const MusicPlayerScreen = ({ route }) => {
     if (currentTrack) {
       loadAudio();
     }
-    
-    return () => {
-      // Dọn dẹp khi unmount component
-      if (sound) {
-        sound.unloadAsync();
-      }
-    };
   }, [currentTrack]);
   
   // Xử lý trạng thái playing thay đổi
@@ -47,8 +68,26 @@ const MusicPlayerScreen = ({ route }) => {
     if (sound) {
       if (playing) {
         sound.playAsync();
+        
+        // Log khi bắt đầu phát nhạc
+        if (currentTrack) {
+          analyticsService.logPlayMusic(
+            currentTrack.id, 
+            currentTrack.name, 
+            playlist.id
+          );
+        }
       } else {
         sound.pauseAsync();
+        
+        // Log khi tạm dừng nhạc
+        if (currentTrack) {
+          analyticsService.logEvent('pause_music', {
+            track_id: currentTrack.id,
+            track_name: currentTrack.name,
+            position_seconds: Math.floor(position / 1000)
+          });
+        }
       }
     }
   }, [playing, sound]);
@@ -65,6 +104,11 @@ const MusicPlayerScreen = ({ route }) => {
           
           // Tự động chuyển bài khi kết thúc
           if (status.didJustFinish) {
+            analyticsService.logEvent('track_finished', {
+              track_id: currentTrack.id,
+              track_name: currentTrack.name,
+              auto_advance: true
+            });
             handleNext();
           }
         }
@@ -86,17 +130,32 @@ const MusicPlayerScreen = ({ route }) => {
     try {
       setLoading(true);
       
+      analyticsService.logEvent('loading_track', {
+        track_id: currentTrack.id,
+        track_name: currentTrack.name
+      });
+      
+      const startTime = Date.now();
+      
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: currentTrack.audio_url },
         { shouldPlay: playing },
         onPlaybackStatusUpdate
       );
       
+      const loadTime = Date.now() - startTime;
+      analyticsService.logEvent('track_loaded', {
+        track_id: currentTrack.id,
+        load_time_ms: loadTime
+      });
+      
       setSound(newSound);
       setLoading(false);
     } catch (error) {
       console.log('Error loading audio:', error);
       setLoading(false);
+      
+      analyticsService.logError('audio_load_error', error.message);
     }
   };
   
@@ -113,6 +172,13 @@ const MusicPlayerScreen = ({ route }) => {
   const handleNext = () => {
     if (playlist && playlist.tracks) {
       const currentIndex = playlist.tracks.findIndex(track => track.id === currentTrack.id);
+      
+      analyticsService.logEvent('skip_track', {
+        direction: 'next',
+        current_track_id: currentTrack.id,
+        current_position_seconds: Math.floor(position / 1000)
+      });
+      
       if (currentIndex < playlist.tracks.length - 1) {
         dispatch(setCurrentTrack(playlist.tracks[currentIndex + 1]));
       } else {
@@ -125,6 +191,13 @@ const MusicPlayerScreen = ({ route }) => {
   const handlePrevious = () => {
     if (playlist && playlist.tracks) {
       const currentIndex = playlist.tracks.findIndex(track => track.id === currentTrack.id);
+      
+      analyticsService.logEvent('skip_track', {
+        direction: 'previous',
+        current_track_id: currentTrack.id,
+        current_position_seconds: Math.floor(position / 1000)
+      });
+      
       if (currentIndex > 0) {
         dispatch(setCurrentTrack(playlist.tracks[currentIndex - 1]));
       } else {
@@ -138,6 +211,11 @@ const MusicPlayerScreen = ({ route }) => {
     if (sound) {
       await sound.setPositionAsync(value);
       setPosition(value);
+      
+      analyticsService.logEvent('seek_track', {
+        track_id: currentTrack.id,
+        seek_to_seconds: Math.floor(value / 1000)
+      });
     }
   };
   
@@ -151,10 +229,15 @@ const MusicPlayerScreen = ({ route }) => {
   
   const handleOpenSpotify = () => {
     if (currentTrack && currentTrack.spotify_url) {
+      analyticsService.logEvent('open_spotify', {
+        track_id: currentTrack.id,
+        track_name: currentTrack.name
+      });
+      
       Linking.openURL(currentTrack.spotify_url);
     }
   };
-  
+
   // Component cho album art thay vì image
   const AlbumArt = ({ track, size = width * 0.7 }) => {
     // Sử dụng gradient cho album art dựa trên thể loại nhạc
@@ -162,17 +245,17 @@ const MusicPlayerScreen = ({ route }) => {
       if (!track) return [COLORS.primary, COLORS.secondary];
       
       // Xác định màu dựa trên thể loại nhạc hoặc tên bài hát
-      if (track.name.toLowerCase().includes('energy') || track.artist.toLowerCase().includes('rock')) {
+      if (track.name.toLowerCase().includes('energy') || track.artist?.toLowerCase().includes('rock')) {
         return ['#FF6B6B', '#FF9B9B']; // Đỏ - cao năng lượng
-      } else if (track.name.toLowerCase().includes('calm') || track.artist.toLowerCase().includes('ambient')) {
+      } else if (track.name.toLowerCase().includes('calm') || track.artist?.toLowerCase().includes('ambient')) {
         return ['#4CD964', '#A0E9A0']; // Xanh lá - yên tĩnh
-      } else if (track.name.toLowerCase().includes('focus') || track.artist.toLowerCase().includes('classic')) {
+      } else if (track.name.toLowerCase().includes('focus') || track.artist?.toLowerCase().includes('classic')) {
         return [COLORS.tertiary, COLORS.quaternary]; // Tím hồng - tập trung
       }
       
       return [COLORS.primary, COLORS.secondary]; // Mặc định
     };
-
+    
     return (
       <LinearGradient
         colors={getGradient()}
@@ -184,7 +267,7 @@ const MusicPlayerScreen = ({ route }) => {
       </LinearGradient>
     );
   };
-
+  
   if (!currentTrack) {
     return (
       <View style={styles.centered}>
@@ -257,7 +340,8 @@ const MusicPlayerScreen = ({ route }) => {
         <View style={styles.playlistInfoContainer}>
           <Text style={styles.playlistTitle}>Playlist: {playlist.name}</Text>
           <Text style={styles.playlistMetaText}>
-            {currentTrack.index || 1}/{playlist.tracks ? playlist.tracks.length : 1}
+            {playlist.tracks ? playlist.tracks.findIndex(t => t.id === currentTrack.id) + 1 : 1}/
+            {playlist.tracks ? playlist.tracks.length : 1}
           </Text>
         </View>
         

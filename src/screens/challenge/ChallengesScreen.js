@@ -5,6 +5,8 @@ import { fetchChallenges, joinChallenge } from '../../store/reducers/challengeSl
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import COLORS from '../../constants/colors';
+import analyticsService from '../../services/analyticsService';
+import performanceMonitor from '../../services/performanceMonitor';
 import moment from 'moment';
 import 'moment/locale/vi';
 
@@ -18,8 +20,16 @@ const ChallengesScreen = ({ navigation }) => {
   // Giả định user_id từ Auth state
   const userId = 'current_user_id';
 
+  // Log screen view
   useEffect(() => {
-    loadChallenges();
+    analyticsService.logScreenView('Challenges', 'ChallengesScreen');
+  }, []);
+
+  useEffect(() => {
+    const startTime = Date.now();
+    loadChallenges().then(() => {
+      performanceMonitor.trackDataFetch('challenges', startTime);
+    });
   }, []);
 
   const loadChallenges = async () => {
@@ -28,11 +38,21 @@ const ChallengesScreen = ({ navigation }) => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    analyticsService.logEvent('pull_to_refresh', {
+      screen: 'Challenges'
+    });
+    
+    const startTime = Date.now();
     await loadChallenges();
+    performanceMonitor.trackDataFetch('challenges_refresh', startTime);
+
     setRefreshing(false);
   };
   
-  const handleJoinChallenge = (challengeId) => {
+  const handleJoinChallenge = (challengeId, challengeName) => {
+    // Log tham gia thử thách
+    analyticsService.logJoinChallenge(challengeId, challengeName);
+    
     dispatch(joinChallenge({
       user_id: userId,
       challenge_id: challengeId
@@ -76,6 +96,17 @@ const ChallengesScreen = ({ navigation }) => {
     }
   };
 
+  // Log khi người dùng xem chi tiết thử thách
+  const handleViewChallenge = (challenge) => {
+    analyticsService.logEvent('view_challenge_detail', {
+      challenge_id: challenge.id,
+      challenge_name: challenge.name,
+      difficulty_level: challenge.difficulty_level
+    });
+    
+    navigation.navigate('Leaderboard', { challenge });
+  };
+
   const renderChallengeItem = ({ item }) => {
     const isJoined = isUserJoinedChallenge(item.id);
     const isActive = new Date() >= new Date(item.start_date) && new Date() <= new Date(item.end_date);
@@ -84,7 +115,7 @@ const ChallengesScreen = ({ navigation }) => {
     return (
       <TouchableOpacity 
         style={styles.challengeCard}
-        onPress={() => navigation.navigate('Leaderboard', { challenge: item })}
+        onPress={() => handleViewChallenge(item)}
       >
         <View style={styles.challengeHeader}>
           <View style={[styles.challengeStatus, isActive ? styles.activeStatus : styles.inactiveStatus]}>
@@ -120,7 +151,7 @@ const ChallengesScreen = ({ navigation }) => {
         <View style={styles.actions}>
           <TouchableOpacity 
             style={[styles.actionButton, styles.leaderboardButton]}
-            onPress={() => navigation.navigate('Leaderboard', { challenge: item })}
+            onPress={() => handleViewChallenge(item)}
           >
             <Ionicons name="podium-outline" size={16} color={COLORS.primary} />
             <Text style={styles.leaderboardButtonText}>Bảng xếp hạng</Text>
@@ -144,6 +175,12 @@ const ChallengesScreen = ({ navigation }) => {
         </View>
       </TouchableOpacity>
     );
+  };
+
+  // Log khi người dùng muốn xem huy hiệu
+  const handleViewBadges = () => {
+    analyticsService.logEvent('view_badges_list');
+    navigation.navigate('Badges');
   };
 
   return (
@@ -170,6 +207,15 @@ const ChallengesScreen = ({ navigation }) => {
           contentContainerStyle={styles.listContainer}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          onEndReached={() => {
+            if (challenges.length > 0) {
+              analyticsService.logEvent('list_end_reached', {
+                screen: 'Challenges',
+                items_count: challenges.length
+              });
+            }
+          }}
+          onEndReachedThreshold={0.5}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="fitness-outline" size={64} color="#c1c9d6" />

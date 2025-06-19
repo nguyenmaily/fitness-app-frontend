@@ -8,8 +8,8 @@ import COLORS from '../../constants/colors';
 import moment from 'moment';
 import 'moment/locale/vi';
 import analyticsService from '../../services/analyticsService';
-import { ColorProperties } from 'react-native-reanimated/lib/typescript/Colors';
-
+import performanceMonitor from '../../services/performanceMonitor';
+import { selectCurrentUserId } from '../../store/reducers/authSlice';
 moment.locale('vi');
 
 const AchievementHistoryScreen = ({ navigation }) => {
@@ -18,10 +18,19 @@ const AchievementHistoryScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
 
   // Giả định user_id từ Auth state
-  const userId = 'current_user_id';
+  const userId = useSelector(selectCurrentUserId);
+
+  // Log screen view khi component mount
+  useEffect(() => {
+    analyticsService.logScreenView('AchievementHistory', 'AchievementHistoryScreen');
+  }, []);
 
   useEffect(() => {
-    loadAchievements();
+    const startTime = Date.now(); // Bắt đầu đo thời gian tải
+    loadAchievements().then(() => {
+      // Theo dõi thời gian tải
+      performanceMonitor.trackDataFetch('achievements', startTime);
+    });
   }, []);
 
   const loadAchievements = async () => {
@@ -30,7 +39,14 @@ const AchievementHistoryScreen = ({ navigation }) => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    analyticsService.logEvent('pull_to_refresh', {
+      screen: 'AchievementHistory'
+    });
+    
+    const startTime = Data.now();
     await loadAchievements();
+    performanceMonitor.trackDataFetch('achievements_refresh', startTime);
+    
     setRefreshing(false);
   };
 
@@ -62,11 +78,21 @@ const AchievementHistoryScreen = ({ navigation }) => {
     }
   };
   
+  // Log khi người dùng xem chi tiết thành tích
+  const handleAchievementPress = (achievement) => {
+    analyticsService.logEvent('view_achievement_detail', {
+      achievement_id: achievement.id,
+      achievement_type: achievement.achievement_type
+    });
+    
+    navigation.navigate('ShareAchievement', { achievement });
+  };
+
   const renderAchievementItem = ({ item }) => {
     return (
       <TouchableOpacity 
         style={styles.achievementCard}
-        onPress={() => navigation.navigate('ShareAchievement', { achievement: item })}
+        onPress={() => handleAchievementPress(item)}
       >
         <View style={styles.achievementHeader}>
           <View style={[
@@ -144,6 +170,16 @@ const AchievementHistoryScreen = ({ navigation }) => {
         contentContainerStyle={styles.listContainer}
         refreshing={refreshing}
         onRefresh={handleRefresh}
+        onEndReached={() => {
+          // Log khi người dùng cuộn đến cuối danh sách
+          if (achievements.length > 0) {
+            analyticsService.logEvent('list_end_reached', {
+              screen: 'AchievementHistory',
+              items_count: achievements.length
+            });
+          }
+        }}
+        onEndReachedThreshold={0.5}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="fitness-outline" size={64} color={COLORS.lightGray} />
